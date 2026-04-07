@@ -788,7 +788,7 @@ pub(crate) struct SchedulerTestBuilder {
 impl Default for SchedulerTestBuilder {
     fn default() -> Self {
         let subnet_type = SubnetType::Application;
-        let scheduler_config = SubnetConfig::new(subnet_type).scheduler_config;
+        let scheduler_config = SubnetConfig::new(subnet_type, false).scheduler_config;
         let config = ic_config::execution_environment::Config::default();
         Self {
             own_subnet_id: subnet_test_id(1),
@@ -825,7 +825,7 @@ impl SchedulerTestBuilder {
     }
 
     pub fn with_subnet_type(self, subnet_type: SubnetType) -> Self {
-        let scheduler_config = SubnetConfig::new(subnet_type).scheduler_config;
+        let scheduler_config = SubnetConfig::new(subnet_type, false).scheduler_config;
         Self {
             subnet_type,
             scheduler_config,
@@ -958,7 +958,7 @@ impl SchedulerTestBuilder {
         state.metadata.network_topology.nns_subnet_id = self.nns_subnet_id;
         state.metadata.batch_time = self.batch_time;
 
-        let mut subnet_config = SubnetConfig::new(self.subnet_type);
+        let mut subnet_config = SubnetConfig::new(self.subnet_type, false);
         subnet_config.scheduler_config = self.scheduler_config.clone();
 
         for key_id in &self.master_public_key_ids {

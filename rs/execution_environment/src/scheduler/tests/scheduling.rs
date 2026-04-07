@@ -843,7 +843,7 @@ fn scheduler_resets_accumulated_priorities() {
         // There must twice more canisters than the scheduler cores
         let num_canisters = scheduler_cores * 2;
 
-        let subnet_config = SubnetConfig::new(SubnetType::Application);
+        let subnet_config = SubnetConfig::new(SubnetType::Application, false);
         let mut test = SchedulerTestBuilder::new()
             .with_scheduler_config(SchedulerConfig {
                 scheduler_cores,
