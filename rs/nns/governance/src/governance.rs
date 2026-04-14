@@ -82,7 +82,7 @@ use crate::{
 use async_trait::async_trait;
 use candid::{Decode, Encode};
 use chrono::NaiveDate;
-use cycles_minting_canister::{IcpXdrConversionRate, IcpXdrConversionRateCertifiedResponse};
+use cycles_minting_canister::IcpXdrConversionRateCertifiedResponse;
 use disburse_maturity::initiate_maturity_disbursement;
 #[cfg(not(target_arch = "wasm32"))]
 use futures::FutureExt;
@@ -1092,6 +1092,11 @@ pub struct Governance {
     ledger: Arc<dyn IcpLedger>,
 
     /// Implementation of the interface with the CMC canister.
+    ///
+    /// Previously used for `neuron_maturity_modulation()` calls; governance now computes
+    /// maturity modulation locally. Kept to avoid a large constructor-signature change across
+    /// 25+ call sites; will be removed in a subsequent PR.
+    #[allow(dead_code)]
     cmc: Arc<dyn CMC>,
 
     /// Implementation of a randomness generator
@@ -6289,97 +6294,9 @@ impl Governance {
                     GovernanceError::from(e),
                 ),
             }
-        // Try to update maturity modulation (once per day).
-        } else if self.should_update_maturity_modulation() {
-            self.update_maturity_modulation().await;
-        } else {
-            // This is the lowest-priority async task. All other tasks should have their own
-            // `else if`, like the ones above.
-            let refresh_xdr_rate_result = self.maybe_refresh_xdr_rate().await;
-            if let Err(err) = refresh_xdr_rate_result {
-                println!(
-                    "{}Error when refreshing XDR rate in run_periodic_tasks: {}",
-                    LOG_PREFIX, err,
-                );
-            }
         }
 
         self.maybe_gc();
-    }
-
-    fn should_update_maturity_modulation(&self) -> bool {
-        // Check if we're already updating the neuron maturity modulation.
-        let now_seconds = self.env.now();
-        let last_updated = self
-            .heap_data
-            .maturity_modulation_last_updated_at_timestamp_seconds;
-        last_updated.is_none() || last_updated.unwrap() + ONE_DAY_SECONDS <= now_seconds
-    }
-
-    async fn update_maturity_modulation(&mut self) {
-        if !self.should_update_maturity_modulation() {
-            return;
-        };
-
-        let now_seconds = self.env.now();
-        let maturity_modulation = match self.cmc.neuron_maturity_modulation().await {
-            Ok(maturity_modulation) => maturity_modulation,
-            Err(err) => {
-                let silence_message =
-                    err.contains("Canister rkp4c-7iaaa-aaaaa-aaaca-cai not found");
-                if !silence_message {
-                    println!(
-                        "{}Couldn't update maturity modulation. Error: {}",
-                        LOG_PREFIX, err
-                    );
-                }
-                return;
-            }
-        };
-        println!(
-            "{}Updated daily maturity modulation rate to (in basis points): {}, at: {}. Last updated: {:?}",
-            LOG_PREFIX,
-            maturity_modulation,
-            now_seconds,
-            self.heap_data
-                .maturity_modulation_last_updated_at_timestamp_seconds,
-        );
-        self.heap_data.cached_daily_maturity_modulation_basis_points = Some(maturity_modulation);
-        self.heap_data
-            .maturity_modulation_last_updated_at_timestamp_seconds = Some(now_seconds);
-    }
-
-    fn should_refresh_xdr_rate(&self) -> bool {
-        let xdr_conversion_rate = &self.heap_data.xdr_conversion_rate;
-
-        let now_seconds = self.env.now();
-
-        let seconds_since_last_conversion_rate_refresh =
-            now_seconds.saturating_sub(xdr_conversion_rate.timestamp_seconds);
-
-        // Return `true` if more than 1 day has passed since the last `xdr_conversion_rate` was
-        // updated. This assumes that `xdr_conversion_rate.timestamp_seconds` is rounded down to
-        // the nearest day's beginning.
-        seconds_since_last_conversion_rate_refresh > ONE_DAY_SECONDS
-    }
-
-    async fn maybe_refresh_xdr_rate(&mut self) -> Result<(), GovernanceError> {
-        if !self.should_refresh_xdr_rate() {
-            return Ok(());
-        };
-
-        // The average (last 30 days) conversion rate from 10,000ths of an XDR to 1 ICP
-        let IcpXdrConversionRate {
-            timestamp_seconds,
-            xdr_permyriad_per_icp,
-        } = self.get_average_icp_xdr_conversion_rate().await?.data;
-
-        self.heap_data.xdr_conversion_rate = XdrConversionRate {
-            timestamp_seconds,
-            xdr_permyriad_per_icp,
-        };
-
-        Ok(())
     }
 
     pub fn maybe_run_validations(&mut self) {
