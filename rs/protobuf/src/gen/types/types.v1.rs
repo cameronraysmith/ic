@@ -537,8 +537,6 @@ pub struct CanisterHttpRequest {
 pub struct CanisterHttpResponse {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(uint64, tag = "2")]
-    pub timeout: u64,
     #[prost(message, optional, tag = "4")]
     pub canister_id: ::core::option::Option<CanisterId>,
     #[prost(message, optional, tag = "3")]
@@ -548,8 +546,6 @@ pub struct CanisterHttpResponse {
 pub struct CanisterHttpResponseMetadata {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(uint64, tag = "2")]
-    pub timeout: u64,
     #[prost(bytes = "vec", tag = "3")]
     pub content_hash: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint64, tag = "4")]
@@ -558,6 +554,8 @@ pub struct CanisterHttpResponseMetadata {
     pub replica_version: ::prost::alloc::string::String,
     #[prost(uint32, tag = "6")]
     pub content_size: u32,
+    #[prost(bool, tag = "7")]
+    pub is_reject: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CanisterHttpResponseContent {
@@ -602,6 +600,8 @@ pub struct CanisterHttpResponseWithConsensus {
     pub signatures: ::prost::alloc::vec::Vec<CanisterHttpResponseSignature>,
     #[prost(uint32, tag = "9")]
     pub content_size: u32,
+    #[prost(bool, tag = "10")]
+    pub is_reject: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CanisterHttpShare {
@@ -634,10 +634,14 @@ pub struct FlexibleCanisterHttpTimeout {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlexibleCanisterHttpResponsesTooLarge {
     #[prost(message, repeated, tag = "1")]
-    pub metadata_shares: ::prost::alloc::vec::Vec<CanisterHttpShare>,
+    pub all_seen_shares: ::prost::alloc::vec::Vec<CanisterHttpShare>,
+    #[prost(uint32, tag = "2")]
+    pub total_requests: u32,
+    #[prost(uint32, tag = "3")]
+    pub min_responses: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FlexibleCanisterHttpTooManyRequestErrors {
+pub struct FlexibleCanisterHttpTooManyRejects {
     #[prost(message, repeated, tag = "1")]
     pub reject_responses: ::prost::alloc::vec::Vec<FlexibleCanisterHttpResponseWithProof>,
 }
@@ -657,7 +661,7 @@ pub mod flexible_canister_http_error {
         #[prost(message, tag = "3")]
         ResponsesTooLarge(super::FlexibleCanisterHttpResponsesTooLarge),
         #[prost(message, tag = "4")]
-        TooManyRequestErrors(super::FlexibleCanisterHttpTooManyRequestErrors),
+        TooManyRejects(super::FlexibleCanisterHttpTooManyRejects),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
