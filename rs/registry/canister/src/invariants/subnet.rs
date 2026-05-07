@@ -17,6 +17,9 @@ use ic_protobuf::registry::{
 use ic_registry_keys::{SUBNET_RECORD_KEY_PREFIX, make_subnet_record_key};
 use prost::Message;
 
+/// The maximum number of subnet admins a subnet may have.
+pub const MAX_SUBNET_ADMINS: usize = 10;
+
 /// Subnet invariants hold iff:
 ///    * Each SSH key access list does not contain more than 50 keys
 ///    * Subnet membership contains no repetition
@@ -30,7 +33,8 @@ use prost::Message;
 ///         * consist of nodes with reward type 4
 ///    * Conversely, only cloud engines can have nodes with reward type 4
 ///    * SEV-enabled subnets consist of SEV-enabled nodes only (i.e. nodes with a chip ID in the node record)
-///    * Only rented subnets can have subnet admins set to a non-empty list
+///    * Only rented or cloud engine subnets can have subnet admins set to a non-empty list
+///    * No subnet has more than `MAX_SUBNET_ADMINS` subnet admins
 pub(crate) fn check_subnet_invariants(
     snapshot: &RegistrySnapshot,
 ) -> Result<(), InvariantCheckError> {
@@ -176,7 +180,8 @@ pub(crate) fn check_subnet_invariants(
     Ok(())
 }
 
-// Checks that only rented subnets or cloud engine subnets can have admins.
+// Checks that only rented subnets or cloud engine subnets can have admins, and
+// that no subnet has more than `MAX_SUBNET_ADMINS` admins.
 fn check_subnet_admins_invariant(
     subnet_record: &SubnetRecord,
     subnet_id: SubnetId,
@@ -202,6 +207,17 @@ fn check_subnet_admins_invariant(
             source: None,
         });
     }
+
+    if subnet_record.subnet_admins.len() > MAX_SUBNET_ADMINS {
+        return Err(InvariantCheckError {
+            msg: format!(
+                "Subnet {subnet_id:} has {} subnet admins, which exceeds the maximum of {MAX_SUBNET_ADMINS}",
+                subnet_record.subnet_admins.len()
+            ),
+            source: None,
+        });
+    }
+
     Ok(())
 }
 
