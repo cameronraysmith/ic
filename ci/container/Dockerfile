@@ -5,18 +5,29 @@ FROM ghcr.io/dfinity/library/ubuntu@sha256:985be7c735afdf6f18aaa122c23f87d989c30
 ENV TZ=UTC
 RUN export DEBIAN_FRONTEND=noninteractive && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# copy/write config files
-ARG PACKAGE_FILE=ci/container/files/packages.common
-COPY ${PACKAGE_FILE} /tmp/
-COPY ./ci/container/files/gitconfig /etc/gitconfig
-COPY ./ci/container/files/containers.conf /etc/containers/containers.conf
-RUN echo "[storage]\nrootless_storage_path=\"/tmp/containers\"" > /etc/containers/storage.conf
-# marker for scripts to check if they are running in this container
-RUN touch /home/ubuntu/.ic-build-container
-
 RUN apt -yq update && \
-    apt -yqq install $(sed -e "s/#.*//" "/tmp/$(basename $PACKAGE_FILE)") && \
-    rm "/tmp/$(basename $PACKAGE_FILE)"
+    apt -yqq install --no-install-recommends ca-certificates curl sudo gnupg git build-essential zlib1g-dev
+
+# AFLplusplus build image
+FROM base as afl
+
+# Install AFLplusplus for fuzzing
+# LLVM is only a build time dependency now since we link the fuzzer lib from the hermetic toolchain directly
+ARG AFLPLUSPLUS_RELEASE_VERSION=v4.35c
+ARG LLVM_VERSION=21
+RUN curl -L "https://apt.llvm.org/llvm-snapshot.gpg.key" | apt-key add - && \
+    echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" | tee -a /etc/apt/sources.list.d/llvm.list && \
+    apt -yq update && \
+    apt -yqq install --no-install-recommends lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev clang-${LLVM_VERSION} libclang-rt-${LLVM_VERSION}-dev && \
+    mkdir -p /afl && \
+    chown -R ubuntu:ubuntu /afl && \
+    cd /afl && \
+    git clone --depth=1 --branch=${AFLPLUSPLUS_RELEASE_VERSION} https://github.com/AFLplusplus/AFLplusplus.git && \
+    cd AFLplusplus && \
+    STATIC=1 LLVM_CONFIG=/usr/bin/llvm-config-${LLVM_VERSION} CC=/usr/bin/clang-${LLVM_VERSION} CXX=/usr/bin/clang++-${LLVM_VERSION} make all && \
+    STATIC=1 LLVM_CONFIG=/usr/bin/llvm-config-${LLVM_VERSION} CC=/usr/bin/clang-${LLVM_VERSION} CXX=/usr/bin/clang++-${LLVM_VERSION} make install
+
+FROM base as build
 
 ## Because the container is used for both CI and development, we need to have a user that matches the UID of the runner (1001) and a user that matches the UID of ubuntu (1000)
 RUN groupadd -g 1001 buildifier && useradd -ms /bin/bash -u 1001 -g 1001 -G ubuntu buildifier && \
@@ -59,24 +70,6 @@ RUN curl -sSL "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}
 ARG motoko_version=0.16.3
 RUN curl -fsSL https://github.com/dfinity/motoko/releases/download/${motoko_version}/motoko-linux-x86_64-${motoko_version}.tar.gz | tar -xz -C /usr/local/bin && chmod +x /usr/local/bin/moc
 
-# Install AFLplusplus for fuzzing
-# LLVM is only a build time dependency now since we link the fuzzer lib from the hermetic toolchain directly
-ARG AFLPLUSPLUS_RELEASE_VERSION=v4.35c
-ARG LLVM_VERSION=21
-RUN curl -L "https://apt.llvm.org/llvm-snapshot.gpg.key" | apt-key add - && \
-    echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" | tee -a /etc/apt/sources.list.d/llvm.list && \
-    apt -yq update && \
-    apt -yqq install --no-install-recommends lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev clang-${LLVM_VERSION} libclang-rt-${LLVM_VERSION}-dev && \
-    mkdir -p /afl && \
-    chown -R ubuntu:ubuntu /afl && \
-    cd /afl && \
-    git clone --depth=1 --branch=${AFLPLUSPLUS_RELEASE_VERSION} https://github.com/AFLplusplus/AFLplusplus.git && \
-    cd AFLplusplus && \
-    STATIC=1 LLVM_CONFIG=/usr/bin/llvm-config-${LLVM_VERSION} CC=/usr/bin/clang-${LLVM_VERSION} CXX=/usr/bin/clang++-${LLVM_VERSION} make all && \
-    STATIC=1 LLVM_CONFIG=/usr/bin/llvm-config-${LLVM_VERSION} CC=/usr/bin/clang-${LLVM_VERSION} CXX=/usr/bin/clang++-${LLVM_VERSION} make install && \
-    mv afl-fuzz afl-showmap  /afl && \
-    cd .. && rm -rf AFLplusplus
-
 # install cargo with the ubuntu user
 USER ubuntu
 ENV PATH=/ic/bin:/home/ubuntu/.cargo/bin:/home/ubuntu/.local/bin:$PATH
@@ -99,11 +92,29 @@ USER root
 WORKDIR /
 CMD ["/bin/bash"]
 
-FROM base as build
+
+# copy/write config files
+
+ARG PACKAGE_FILE=ci/container/files/packages.common
+COPY ${PACKAGE_FILE} /tmp/
+RUN apt -yqq install $(sed -e "s/#.*//" "/tmp/$(basename $PACKAGE_FILE)") && \
+    rm "/tmp/$(basename $PACKAGE_FILE)"
+COPY ./ci/container/files/gitconfig /etc/gitconfig
+COPY ./ci/container/files/containers.conf /etc/containers/containers.conf
+RUN echo hello
+RUN echo "[storage]\nrootless_storage_path=\"/tmp/containers\"" > /etc/containers/storage.conf
+
+# copy executables built elsewhere
+COPY --from=afl /usr/local/bin/afl-fuzz /usr/local/bin/afl-fuzz
+
+# marker for scripts to check if they are running in this container
+RUN touch /home/ubuntu/.ic-build-container
 
 USER buildifier
 
-FROM base as dev
+FROM build as dev
+
+USER root
 
 # Add zshrc generated from zsh-newuser-install (option 2)
 COPY --chown=ubuntu:ubuntu ./ci/container/files/zshrc /home/ubuntu/.zshrc
