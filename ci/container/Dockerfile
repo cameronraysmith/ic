@@ -18,6 +18,9 @@ RUN apt -yq update && \
     apt -yqq install $(sed -e "s/#.*//" "/tmp/$(basename $PACKAGE_FILE)") && \
     rm "/tmp/$(basename $PACKAGE_FILE)"
 
+# Drop troublesome SSH file (Potentially related: Debian #1072221)
+RUN rm -f /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf
+
 ## Because the container is used for both CI and development, we need to have a user that matches the UID of the runner (1001) and a user that matches the UID of ubuntu (1000)
 RUN groupadd -g 1001 buildifier && useradd -ms /bin/bash -u 1001 -g 1001 -G ubuntu buildifier && \
     # both buildifier and ubuntu users need to be able to access root permissions
