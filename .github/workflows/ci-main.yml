@@ -210,7 +210,7 @@ jobs:
       name: ${{ case(needs.config.outputs.release-build == 'true', 'upload-artifacts', '') }}
     runs-on: *dind-large-setup
     container: *container-setup
-    timeout-minutes: 300
+    timeout-minutes: 150
     steps:
       - *checkout
       - uses: ./.github/actions/netrc
@@ -223,7 +223,7 @@ jobs:
         shell: bash
         run: |
           # Determine bazel_args based on event type or branch name
-          bazel_args=( --config=flaky_retry --config=local ) # auto retry eg systests
+          bazel_args=( --config=flaky_retry ) # auto retry eg systests
           if [[ "$CI_EVENT_NAME" == 'merge_group' ]]; then
               bazel_args+=( --test_timeout_filters=short,moderate --flaky_test_attempts=3 )
           elif [[ $BRANCH_NAME =~ ^(hotfix-|public-hotfix-) ]]; then
